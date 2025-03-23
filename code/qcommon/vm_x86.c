@@ -195,6 +195,7 @@ typedef enum {
 } macro_op_t;
 #endif
 
+static  int      errorAddress;
 static	byte     *code;
 static	int      compiledOfs;
 static	int      *instructionOffsets;
@@ -2728,40 +2729,49 @@ static uint32_t load_sx_opstack( uint32_t pref )
 	it->type = TYPE_RAW;
 	return reg;
 }
-
+static void ShowVMDebugInfo(void)
+{
+	Com_Printf("address 0x%x/n", errorAddress);
+}
 
 static void ErrJump( void )
 {
+	ShowVMDebugInfo();
 	Com_Error( ERR_DROP, "program tried to execute code outside VM" );
 }
 
 
 static void BadJump( void )
 {
+	ShowVMDebugInfo();
 	Com_Error( ERR_DROP, "program tried to execute code at bad location inside VM" );
 }
 
 
 static void BadStack( void )
 {
+	ShowVMDebugInfo();
 	Com_Error( ERR_DROP, "program tried to overflow program stack" );
 }
 
 
 static void BadOpStack( void )
 {
+	ShowVMDebugInfo();
 	Com_Error( ERR_DROP, "program tried to overflow opcode stack" );
 }
 
 
 static void BadDataRead( void )
 {
+	ShowVMDebugInfo();
 	Com_Error( ERR_DROP, "program tried to read out of data segment" );
 }
 
 
 static void BadDataWrite( void )
 {
+	ShowVMDebugInfo();
 	Com_Error( ERR_DROP, "program tried to write out of data segment" );
 }
 
@@ -3060,7 +3070,18 @@ static void EmitCallOffset( func_t Func )
 	EmitString( "E8" );		// call +funcOffset[ Func ]
 	Emit4( v - 5 );
 }
+static void emit_save_error_address(void)
+{
+	emit_push(R_EAX);
+	emit_push(R_ECX);
 
+	emit_mov_rx_imm32(R_EAX, ip);      // mov eax, ip
+	mov_rx_ptr(R_ECX, &errorAddress);  // mov ecx, &errorAddress
+	emit_store_rx( R_EAX, R_ECX, 0 );		// mov [ecx], eax
+
+	emit_pop(R_ECX);
+	emit_pop(R_EAX);
+}
 
 static void emit_CheckReg( vm_t *vm, uint32_t reg, func_t func )
 {
@@ -3073,7 +3094,7 @@ static void emit_CheckReg( vm_t *vm, uint32_t reg, func_t func )
 #endif
 		return;
 	}
-
+	emit_save_error_address();
 #if idx64
 	emit_cmp_rx( reg, R_DATAMASK );					// cmp reg, dataMask
 #else
@@ -3092,6 +3113,7 @@ static void emit_CheckJump( vm_t *vm, uint32_t reg, int32_t proc_base, int32_t p
 		return;
 	}
 
+	emit_save_error_address();
 	if ( proc_base != -1 ) {
 		uint32_t rx;
 
@@ -3115,6 +3137,7 @@ static void emit_CheckJump( vm_t *vm, uint32_t reg, int32_t proc_base, int32_t p
 
 static void emit_CheckProc( vm_t *vm, instruction_t *ins )
 {
+	emit_save_error_address();
 	// programStack overflow check
 	if ( vm_rtChecks->integer & VM_RTCHECK_PSTACK ) {
 #if idx64
